@@ -669,6 +669,9 @@ func (c *Client) transferOverLocalRelay(errchan chan<- error) {
 func (c *Client) Send(filesInfo []FileInfo, emptyFoldersToTransfer []FileInfo, totalNumberFolders int) (err error) {
 	go c.stop.done()
 	defer c.stop.Cancel()
+	c.stop.startIdleMonitor(func(idleFor time.Duration) {
+		c.abortTransfer("transfer stalled for %s", idleFor.Round(time.Second))
+	})
 	c.EmptyFoldersToTransfer = emptyFoldersToTransfer
 	c.TotalNumberFolders = totalNumberFolders
 	c.TotalNumberOfContents = len(filesInfo)
@@ -893,6 +896,9 @@ func showReceiveCommandQrCode(command string) {
 func (c *Client) Receive() (err error) {
 	go c.stop.done()
 	defer c.stop.Cancel()
+	c.stop.startIdleMonitor(func(idleFor time.Duration) {
+		c.abortTransfer("transfer stalled for %s", idleFor.Round(time.Second))
+	})
 	fmt.Fprintf(os.Stderr, "connecting...")
 	// recipient will look for peers first
 	// and continue if it doesn't find any within 100 ms
@@ -1195,6 +1201,7 @@ func (c *Client) transfer() (err error) {
 			}
 			break
 		}
+		c.stop.touch()
 		done, err = c.processMessage(data)
 		if err != nil {
 			log.Debugf("data: %s", data)
@@ -1434,8 +1441,7 @@ func (c *Client) processMessagePake(m message.Message) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if c.stop.gui {
-				log.Errorf("panic: %v", r)
-				c.stop.Cancel()
+				c.abortTransfer("panic: %v", r)
 			} else {
 				panic(r)
 			}
@@ -1744,6 +1750,7 @@ func (c *Client) recipientInitializeFile() (err error) {
 
 func (c *Client) recipientGetFileReady(finished bool) (err error) {
 	if finished {
+		c.stop.setIdleActive(false)
 		// TODO: do the last finishing stuff
 		log.Debug("finished")
 		err = message.Send(c.conn[0], c.Key, message.Message{
@@ -1786,6 +1793,7 @@ func (c *Client) recipientGetFileReady(finished bool) (err error) {
 	if err != nil {
 		return
 	}
+	c.stop.setIdleActive(true)
 	c.Step3RecipientRequestFile = true
 	return
 }
@@ -1970,6 +1978,7 @@ func (c *Client) updateState() (err error) {
 
 	if c.Options.IsSender && c.Step3RecipientRequestFile && !c.Step4FileTransferred {
 		log.Debug("start sending data!")
+		c.stop.setIdleActive(true)
 
 		if !c.firstSend {
 			fmt.Fprintf(os.Stderr, "\nSending (->%s)\n", c.ExternalIPConnected)
@@ -2061,8 +2070,7 @@ func (c *Client) receiveData(i int) {
 	defer func() {
 		if r := recover(); r != nil {
 			if c.stop.gui {
-				log.Errorf("panic: %v", r)
-				c.stop.Cancel()
+				c.abortTransfer("panic: %v", r)
 			} else {
 				panic(r)
 			}
@@ -2074,6 +2082,7 @@ func (c *Client) receiveData(i int) {
 		if err != nil {
 			break
 		}
+		c.stop.touch()
 		if bytes.Equal(data, []byte{1}) {
 			log.Trace("got ping")
 			continue
@@ -2129,6 +2138,7 @@ func (c *Client) receiveData(i int) {
 		// log.Debug(len(c.CurrentFileChunks), c.TotalChunksTransferred, c.TotalSent, c.FilesToTransfer[c.FilesToTransferCurrentNum].Size)
 
 		if !c.CurrentFileIsClosed && (c.TotalChunksTransferred == len(c.CurrentFileChunks) || c.TotalSent == c.FilesToTransfer[c.FilesToTransferCurrentNum].Size) {
+			c.stop.setIdleActive(false)
 			c.CurrentFileIsClosed = true
 			log.Debug("finished receiving!")
 			if err = c.CurrentFile.Close(); err != nil {
@@ -2149,7 +2159,8 @@ func (c *Client) receiveData(i int) {
 				Type: message.TypeCloseSender,
 			})
 			if err != nil {
-				panic(err)
+				c.abortTransfer("failed to notify sender that file is complete: %v", err)
+				return
 			}
 		}
 		c.mutex.Unlock()
@@ -2160,8 +2171,7 @@ func (c *Client) sendData(i int) {
 	defer func() {
 		if r := recover(); r != nil {
 			if c.stop.gui {
-				log.Errorf("panic: %v", r)
-				c.stop.Cancel()
+				c.abortTransfer("panic: %v", r)
 			} else {
 				panic(r)
 			}
@@ -2234,6 +2244,7 @@ func (c *Client) sendData(i int) {
 					if err != nil {
 						panic(err)
 					}
+					c.stop.touch()
 					c.bar.Add(n)
 					c.TotalSent += int64(n)
 					// time.Sleep(100 * time.Millisecond)
