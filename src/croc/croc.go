@@ -92,6 +92,7 @@ type Options struct {
 	Quiet             bool
 	DisableClipboard  bool
 	ExtendedClipboard bool
+	DisplayName       string
 }
 
 type SimpleMessage struct {
@@ -543,7 +544,7 @@ func (c *Client) sendCollectFiles(filesInfo []FileInfo) (err error) {
 		}
 		log.Debugf("file %d info: %+v", i, c.FilesToTransfer[i])
 		fmt.Fprintf(os.Stderr, "\r                                 ")
-		fmt.Fprintf(os.Stderr, "\rSending %d files (%s)", i, utils.ByteCountDecimal(totalFilesSize))
+		fmt.Fprintf(os.Stderr, "\rPreparing %d files (%s)", i+1, utils.ByteCountDecimal(totalFilesSize))
 	}
 	log.Debugf("longestFilename: %+v", c.longestFilename)
 	fname := fmt.Sprintf("%d files", len(c.FilesToTransfer))
@@ -560,9 +561,9 @@ func (c *Client) sendCollectFiles(filesInfo []FileInfo) (err error) {
 
 	fmt.Fprintf(os.Stderr, "\r                                 ")
 	if c.TotalNumberFolders > 0 {
-		fmt.Fprintf(os.Stderr, "\rSending %s and %s (%s)\n", fname, folderName, utils.ByteCountDecimal(totalFilesSize))
+		fmt.Fprintf(os.Stderr, "\rReady to send %s and %s (%s)\n", fname, folderName, utils.ByteCountDecimal(totalFilesSize))
 	} else {
-		fmt.Fprintf(os.Stderr, "\rSending %s (%s)\n", fname, utils.ByteCountDecimal(totalFilesSize))
+		fmt.Fprintf(os.Stderr, "\rReady to send %s (%s)\n", fname, utils.ByteCountDecimal(totalFilesSize))
 	}
 	return
 }
@@ -679,6 +680,7 @@ func (c *Client) Send(filesInfo []FileInfo, emptyFoldersToTransfer []FileInfo, t
 	if err != nil {
 		return
 	}
+	fmt.Fprintf(os.Stderr, "Waiting for receiver...\n")
 	flags := &strings.Builder{}
 	if c.Options.RelayAddress != models.DEFAULT_RELAY && !c.Options.OnlyLocal {
 		flags.WriteString("--relay " + c.Options.RelayAddress + " ")
@@ -1535,10 +1537,21 @@ func (c *Client) processMessagePake(m message.Message) (err error) {
 		err = message.Send(c.conn[0], c.Key, message.Message{
 			Type:    message.TypeExternalIP,
 			Message: c.ExternalIP,
-			Bytes:   m.Bytes,
+			Bytes:   []byte(c.displayName()),
+			Bytes2:  m.Bytes,
 		})
 	}
 	return
+}
+
+func (c *Client) displayName() string {
+	if c.Options.DisplayName != "" {
+		return c.Options.DisplayName
+	}
+	if c.ExternalIP != "" {
+		return c.ExternalIP
+	}
+	return c.Options.RelayAddress
 }
 
 func (c *Client) processExternalIP(m message.Message) (done bool, err error) {
@@ -1547,6 +1560,7 @@ func (c *Client) processExternalIP(m message.Message) (done bool, err error) {
 		err = message.Send(c.conn[0], c.Key, message.Message{
 			Type:    message.TypeExternalIP,
 			Message: c.ExternalIP,
+			Bytes:   []byte(c.displayName()),
 		})
 		if err != nil {
 			return true, err
@@ -1554,7 +1568,11 @@ func (c *Client) processExternalIP(m message.Message) (done bool, err error) {
 	}
 	if c.ExternalIPConnected == "" {
 		// it can be preset by the local relay
-		c.ExternalIPConnected = m.Message
+		if len(m.Bytes) > 0 {
+			c.ExternalIPConnected = string(m.Bytes)
+		} else {
+			c.ExternalIPConnected = m.Message
+		}
 	}
 	log.Debugf("connected as %s -> %s", c.ExternalIP, c.ExternalIPConnected)
 	c.Step1ChannelSecured = true
