@@ -1,4 +1,4 @@
-module github.com/schollz/croc/v10
+module github.com/linksocks/croc
 
 go 1.24.0
 

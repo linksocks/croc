@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schollz/croc/v10/src/tcp"
+	"github.com/linksocks/croc/src/tcp"
 	log "github.com/schollz/logger"
 	"github.com/stretchr/testify/assert"
 )

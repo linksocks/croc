@@ -25,7 +25,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/kalafut/imohash"
 	"github.com/minio/highwayhash"
-	"github.com/schollz/croc/v10/src/mnemonicode"
+	"github.com/linksocks/croc/src/mnemonicode"
 	log "github.com/schollz/logger"
 	"github.com/schollz/progressbar/v3"
 )

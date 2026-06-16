@@ -5,9 +5,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/schollz/croc/v10/src/message"
-	"github.com/schollz/croc/v10/src/tcp"
-	"github.com/schollz/croc/v10/src/utils"
+	"github.com/linksocks/croc/src/message"
+	"github.com/linksocks/croc/src/tcp"
+	"github.com/linksocks/croc/src/utils"
 	log "github.com/schollz/logger"
 )
 
